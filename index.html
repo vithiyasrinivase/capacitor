@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capacitive Sensor Monitor</title>
+<style>
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    padding: 20px;
+  }
+  button {
+    background: #238636;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  button:disabled {
+    background: #444;
+  }
+  canvas {
+    background: #161b22;
+    border-radius: 10px;
+    width: 100%;
+    max-width: 600px;
+    height: 200px;
+    margin-top: 20px;
+  }
+  #value {
+    font-size: 48px;
+    font-weight: bold;
+    color: #58a6ff;
+    margin-top: 15px;
+  }
+</style>
+</head>
+<body>
+  <h1>Capacitive Sensor (Arduino)</h1>
+  <button id="connect">🔌 Connect Arduino</button>
+  <button id="disconnect" disabled>❌ Disconnect</button>
+
+  <div id="status">Status: Disconnected</div>
+  <div id="value">---</div>
+  <canvas id="chart" width="600" height="200"></canvas>
+
+<script>
+let port;
+let reader;
+let keepReading = false;
+const connectBtn = document.getElementById('connect');
+const disconnectBtn = document.getElementById('disconnect');
+const statusEl = document.getElementById('status');
+const valueEl = document.getElementById('value');
+const canvas = document.getElementById('chart');
+const ctx = canvas.getContext('2d');
+let values = [];
+
+async function connectSerial() {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    statusEl.textContent = 'Status: Connected';
+    connectBtn.disabled = true;
+    disconnectBtn.disabled = false;
+    keepReading = true;
+    readLoop();
+  } catch (err) {
+    statusEl.textContent = 'Connection failed: ' + err;
+  }
+}
+
+async function readLoop() {
+  const textDecoder = new TextDecoderStream();
+  const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+  reader = textDecoder.readable.getReader();
+
+  try {
+    while (keepReading) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) processData(value);
+    }
+  } catch (error) {
+    console.error('Read error:', error);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function processData(text) {
+  const lines = text.trim().split(/\r?\n/);
+  for (let line of lines) {
+    const val = parseInt(line);
+    if (!isNaN(val)) {
+      values.push(val);
+      if (values.length > 100) values.shift();
+      updateDisplay(val);
+      drawChart();
+    }
+  }
+}
+
+function updateDisplay(val) {
+  valueEl.textContent = val;
+}
+
+function drawChart() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.beginPath();
+  ctx.strokeStyle = '#58a6ff';
+  ctx.lineWidth = 2;
+  const step = canvas.width / (values.length - 1);
+  values.forEach((v, i) => {
+    const y = canvas.height - (v / 1000) * canvas.height; // scale
+    if (i === 0) ctx.moveTo(0, y);
+    else ctx.lineTo(i * step, y);
+  });
+  ctx.stroke();
+}
+
+async function disconnectSerial() {
+  keepReading = false;
+  if (reader) await reader.cancel();
+  if (port) await port.close();
+  statusEl.textContent = 'Status: Disconnected';
+  connectBtn.disabled = false;
+  disconnectBtn.disabled = true;
+}
+
+connectBtn.addEventListener('click', connectSerial);
+disconnectBtn.addEventListener('click', disconnectSerial);
+</script>
+</body>
+</html>
